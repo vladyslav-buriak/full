@@ -1,15 +1,18 @@
 import express from "express";
-import jwt from "jsonwebtoken";
-import bcrypt from "bcrypt";
 import mongoose from "mongoose";
-import { userDataValidate } from "./validations/auth.js";
-import { validationResult } from "express-validator";
-
-import UserModel from "./models/User.js";
+import {
+  loginValidate,
+  postCreateValidation,
+  userDataValidate,
+} from "./validations/validation.js";
+import { protect, validateMiddleware } from "./middelware/index.js";
+import { authControllers, postController } from "./controllers/index.js";
+import multer from "multer";
+import cors from "cors";
 
 mongoose
   .connect(
-    "mongodb+srv://vlados:Vlados1992@cluster0.lxhehw5.mongodb.net/blog?retryWrites=true&w=majority"
+    "mongodb+srv://Diana:Diana123@cluster0.gtihdk7.mongodb.net/blog?retryWrites=true&w=majority"
   )
   .then(() => {
     console.log("DB ok connect");
@@ -20,40 +23,73 @@ mongoose
 
 const app = express();
 
-app.use(express.json());
+//UPLOAD IMAGES
 
-app.post("/auth/register", userDataValidate, async (req, resp) => {
-  try {
-    const errors = validationResult(req);
-
-    if (!errors.isEmpty()) {
-      return resp.status(400).json({
-        success: false,
-        errors: errors.array(),
-      });
-    }
-
-    const password = req.body.password;
-    const salt = await bcrypt.genSalt();
-    const hash = await bcrypt.hash(password, salt);
-
-    const doc = new UserModel({
-      name: req.body.name,
-      email: req.body.email,
-      avatarUrl: req.body.avatarUrl,
-      hash,
-    });
-
-    const user = await doc.save();
-
-    resp.json(user);
-  } catch (err) {
-    console.log(err);
-    resp.status(500).json({
-      message: "не вдалось зареэструваатись",
-    });
-  }
+const storageConfig = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads");
+  },
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  },
 });
+
+app.use(multer({ storage: storageConfig }).single("image"));
+
+
+app.post("/upload", protect, function (req, res, next) {
+  let filedata = req.file;
+  if (!filedata) res.send("Ошибка при загрузке файла");
+  else res.json({ url: `/uploads/${req.file.originalname}` });
+});
+
+app.use(express.json());
+app.use(cors());
+app.use("/uploads", express.static("uploads"));
+
+
+//register
+app.post(
+  "/auth/register",
+  userDataValidate,
+  validateMiddleware,
+  authControllers.register
+);
+
+//login
+
+app.post(
+  "/auth/login",
+  loginValidate,
+  validateMiddleware,
+  authControllers.login
+);
+
+//get profile
+app.get("/auth/me", protect, authControllers.getMe);
+
+//POSTS
+
+app.post(
+  "/posts",
+  protect,
+  postCreateValidation,
+  validateMiddleware,
+  postController.createPost
+);
+
+app.get("/posts", postController.getPosts);
+app.get("/posts/:id", postController.getOnePost);
+app.delete("/posts/:id", protect, postController.deletePost);
+app.patch(
+  "/posts/:id",
+  protect,
+  postCreateValidation,
+
+  postController.updatePost
+);
+app.get("/tags", postController.getLastTags);
+
 
 app.listen(9832, (err) => {
   if (err) {
